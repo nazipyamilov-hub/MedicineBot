@@ -17,6 +17,3 @@ async def cmd_ask_doze(message: Message):
 @add_new_medicine_router.message()
 async def cmd_ask_date(message: Message):
     await message.answer("Хорошо, записал, теперь пришли график приёма лекарства")
-    # await message.delete()
-
-
