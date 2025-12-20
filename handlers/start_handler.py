@@ -2,9 +2,12 @@ from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 
-start_router = Router()
+from MedicineBot.db.sqlite import data_db
 
+start_router = Router()
 
 @start_router.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer(f'Привет, {message.from_user.full_name}. Твой TG ID: {message.from_user.id}.')
+    user = message.from_user
+    await data_db.add_user(name=user.full_name, tg_id=user.id)
+    await message.answer(f'Привет, {user.full_name}. Твой TG ID: {user.id}.')

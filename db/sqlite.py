@@ -1,3 +1,6 @@
+import asyncio
+from pathlib import Path
+
 import aiosqlite
 
 
@@ -9,58 +12,105 @@ Executing: {sql_statement}
 """)
 
 
-class Database:
+# Создаем класс нашей БД с методами
+class SqliteUserDataManager:
+    def __init__(self, db="db/medicine_schedule.db"):
+        self.db = Path(db)
+        self.lock = asyncio.Lock()
+        self.initialized = False
 
-    def __init__(self, path_to_db='medicine_schedule.db'):
-        self.path_to_db = path_to_db
+    async def _ensure_db_exists(
+            self):  # Этот код представляет собой асинхронный метод _ensure_db_exists, который проверяет и при необходимости создает базу данных SQLite с таблицей users.
+        if self.initialized:
+            return
 
-    @property
-    async def connection(self):
-        async with aiosqlite.connect(self.path_to_db) as connection:
-            return connection
+        async with self.lock:  # Использование асинхронного блокировщика для предотвращения race condition (состояния гонки), когда несколько потоков/корутин могут попытаться инициализировать базу одновременно
+            if self.initialized:  # Дважды проверьте блокировку
+                return
 
-    async def execute(self, sql: str, parameters: tuple = None, fetchone: bool = False, fetchall: bool = False,
-                      commit: bool = False):
-        if not parameters:
-            parameters = tuple()
-        conn = await self.connection
-        await conn.set_trace_callback(logger)
-        cursor = await conn.cursor()
-        data = None
+            async with aiosqlite.connect(
+                    self.db) as db:  # Подключение к SQLite с использованием асинхронной библиотеки aiosqlite.
+                await db.execute('''
+                    CREATE TABLE IF NOT EXISTS users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        name VARCHAR(255) NOT NULL, 
+                        tg_id INTEGER NOT NULL,
+                        medicine VARCHAR(255),
+                        week_days VARCHAR(255),
+                        time_to_take_medicine TEXT
+                    )
+                ''')
+                await db.commit()
+            self.initialized = True
 
-        await cursor.execute(sql, parameters)
+    # Этот код представляет собой асинхронный метод add_user, который добавляет пользователя в базу данных SQLite.
+    async def add_user(self, name: str, tg_id: int):
+        await self._ensure_db_exists()
+        async with self.lock:
+            async with aiosqlite.connect(self.db) as db:
+                await db.execute('''INSERT OR IGNORE INTO users (name, tg_id) VALUES (?, ?)''', (name, tg_id))
+                await db.commit()
 
-        if commit:
-            await conn.commit()
-        if fetchone:
-            data = cursor.fetchone()
-        if fetchall:
-            data = cursor.fetchall()
-        await conn.close()
-        return data
+    async def add_medicine(self, medicine: str, tg_id: int):
+        await self._ensure_db_exists()
+        async with self.lock:
+            async with aiosqlite.connect(self.db) as db:
+                await db.execute('''UPDATE users SET medicine=(?) WHERE tg_id=(?)''', (medicine, tg_id))
+                await db.commit()
 
-    async def create_table_users(self):
-        # ToDo: Дописать в БД поле time_to_take_medicine для хранения времени приёма лекарства
-        sql_cmd = """
-        CREATE TABLE IF NOT EXISTS users (
-            id INT NOT NULL, 
-            name varchar(255) NOT NULL, 
-            medicine varchar(255),
-            week_days varchar(255),
-            time_to_take_medicine 
-            PRIMARY KEY (id)
-        );
-        """
-        await self.execute(sql=sql_cmd, commit=True)
+    async def add_week_days(self, week_days: str, tg_id: int):
+        await self._ensure_db_exists()
+        async with self.lock:
+            async with aiosqlite.connect(self.db) as db:
+                await db.execute('''UPDATE users SET week_days=(?) WHERE tg_id=(?)''', (week_days, tg_id))
+                await db.commit()
 
-    async def add_user(self, ID: int, name: str):
-        # ToDo: Эта функция должна срабатывать при нажатии команды /start
-        sql_cmd = "INSERT INTO users (id, name) VALUES (?, ?)"
-        params = (ID, name)
-        await self.execute(sql=sql_cmd, parameters=params, commit=True)
+    async def add_time_to_take_medicine(self, time_to_take_medicine: str, tg_id: int):
+        await self._ensure_db_exists()
+        async with self.lock:
+            async with aiosqlite.connect(self.db) as db:
+                await db.execute('''UPDATE users SET time_to_take_medicine=(?) WHERE tg_id=(?)''',
+                                 (time_to_take_medicine, tg_id))
+                await db.commit()
 
-    # ToDo: Написать функцию добавления лекарства
-    # ToDo: Написать функцию добавления дня приёма лекарства
-    # ToDo: Написать функцию добавления времени приёма лекарства в формате hh:mm
-    # ToDo: Написать функцию удаления лекарства (следовательно, и всего графика приёма)
-    # ToDo: Написать функцию получения всех лекарств пользователя (соответственно, вместе с их графиками)
+    async def delete_medicines(self, tg_id: int):
+        await self._ensure_db_exists()
+        async with self.lock:
+            async with aiosqlite.connect(self.db) as db:
+                await db.execute(
+                    '''UPDATE users SET medicine=NULL, week_days=NULL, time_to_take_medicine=NULL WHERE tg_id=(?)''',
+                    (tg_id,))
+                await db.commit()
+
+    async def get_all_users(self):
+        await self._ensure_db_exists()
+        async with self.lock:
+            async with aiosqlite.connect(self.db_file) as db:
+                cursor = await db.execute("SELECT * FROM users")
+                rows = await cursor.fetchall()
+                return {
+                    row[0]: {
+                        "username": row[1],
+                        "subscribed": bool(row[2]),
+                        "created_at": row[3]
+                    } for row in rows
+                }
+
+    async def show(self, tg_id: int):
+        await self._ensure_db_exists()
+        async with self.lock:
+            async with aiosqlite.connect(self.db) as db:
+                cursor = await db.execute(
+                    '''SELECT medicine, week_days, time_to_take_medicine FROM users WHERE tg_id=(?)''', (tg_id,))
+                rows = await cursor.fetchall()
+                return {
+                    row[0]: {
+                        "medicine": row[1],
+                        "week_days": bool(row[2]),
+                        "time_to_take_medicine": row[3]
+                    } for row in rows
+                }
+
+
+# Создаем экземпляр базы данных
+data_db = SqliteUserDataManager()

@@ -8,6 +8,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 
+from MedicineBot.db.sqlite import SqliteUserDataManager
 from handlers.add_new_medicine import add_new_medicine_router
 from handlers.help_handler import help_router
 from handlers.start_handler import start_router
@@ -25,6 +26,7 @@ async def main():
         help_router,
         add_new_medicine_router,
     )
+
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
