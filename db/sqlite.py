@@ -19,17 +19,20 @@ class SqliteUserDataManager:
         self.lock = asyncio.Lock()
         self.initialized = False
 
-    async def _ensure_db_exists(
-            self):  # Этот код представляет собой асинхронный метод _ensure_db_exists, который проверяет и при необходимости создает базу данных SQLite с таблицей users.
+    # Этот код представляет собой асинхронный метод _ensure_db_exists,
+    # который проверяет и при необходимости создает базу данных SQLite с таблицей users.
+    async def _ensure_db_exists(self):
         if self.initialized:
             return
 
-        async with self.lock:  # Использование асинхронного блокировщика для предотвращения race condition (состояния гонки), когда несколько потоков/корутин могут попытаться инициализировать базу одновременно
-            if self.initialized:  # Дважды проверьте блокировку
+        # Использование асинхронного блокировщика для предотвращения race condition (состояния гонки),
+        # когда несколько потоков/корутин могут попытаться инициализировать базу одновременно
+        async with self.lock:
+            if self.initialized:  # Дважды проверяем блокировку
                 return
 
-            async with aiosqlite.connect(
-                    self.db) as db:  # Подключение к SQLite с использованием асинхронной библиотеки aiosqlite.
+            # Подключение к SQLite с использованием асинхронной библиотеки aiosqlite.
+            async with aiosqlite.connect(self.db) as db:
                 await db.execute('''
                     CREATE TABLE IF NOT EXISTS users (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
@@ -43,15 +46,14 @@ class SqliteUserDataManager:
                 await db.commit()
             self.initialized = True
 
-    # Этот код представляет собой асинхронный метод add_user, который добавляет пользователя в базу данных SQLite.
-    async def add_user(self, name: str, tg_id: int):
+    async def add_user(self, name: str, tg_id: int):  # Добавить пользователя в БД
         await self._ensure_db_exists()
         async with self.lock:
             async with aiosqlite.connect(self.db) as db:
                 await db.execute('''INSERT OR IGNORE INTO users (name, tg_id) VALUES (?, ?)''', (name, tg_id))
                 await db.commit()
 
-    async def add_medicine(self, medicine: str, tg_id: int):
+    async def add_medicine(self, medicine: str, tg_id: int):  # Добавить лекарство в БД
         await self._ensure_db_exists()
         async with self.lock:
             async with aiosqlite.connect(self.db) as db:

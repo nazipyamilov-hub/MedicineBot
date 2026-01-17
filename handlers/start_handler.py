@@ -6,6 +6,7 @@ from MedicineBot.db.sqlite import data_db
 
 start_router = Router()
 
+
 @start_router.message(CommandStart())
 async def cmd_start(message: Message):
     user = message.from_user

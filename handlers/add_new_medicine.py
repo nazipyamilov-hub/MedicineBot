@@ -2,11 +2,14 @@ from aiogram import Router, types
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import Message, CallbackQuery
+from aiogram_dialog import ChatEvent, DialogManager
+from aiogram_dialog.widgets.kbd import ManagedCheckbox, Checkbox, Button
+from aiogram_dialog.widgets.text import Const
+
+from MedicineBot.db.sqlite import data_db
 
 add_new_medicine_router = Router()
-previous_message = 0
 week = {  # ToDo: В будущем вместо словаря должна использоваться БД
     "monday": "Пн❌",
     "tuesday": "Вт❌",
@@ -19,9 +22,27 @@ week = {  # ToDo: В будущем вместо словаря должна и�
 }
 status = {True: "✅", False: "❌"}
 
-class AddMedicine(StatesGroup):
-    wait_for_medicine_name = State()
-    wait_for_times_per_day = State()
+
+async def check_changed(event: ChatEvent, checkbox: ManagedCheckbox, manager: DialogManager):
+    print("Check status changed:", checkbox.is_checked())
+
+
+check = Checkbox(
+    Const("✅"),
+    Const("❌"),
+    id="check",
+    default=False,
+    on_state_changed=check_changed
+)
+
+
+async def switch(callback: CallbackQuery, button: Button, manager: DialogManager):
+    await callback.message.answer("Going on!")
+
+
+class AddMedicine(StatesGroup):  # Состояние 0 - нет состояния
+    wait_for_medicine_name = State()  # Состояние 1 - ждём название лекарства
+    wait_for_weekdays = State()  # Состояние 2 - ждем дни недели, когда над принимать лекарство
     wait_for_schedule = State()
 
 
@@ -33,37 +54,39 @@ async def cmd_ask_new_medicine(message: Message, state: FSMContext):
 
 
 @add_new_medicine_router.message(AddMedicine.wait_for_medicine_name)
-async def cmd_ask_doze(message: Message, state: FSMContext):
-    print(message.text)  # Todo: В будущем надо вместо print сделать сохранение в БД, т.к. сейчас лекарство просто печатается
-
-    await message.answer("Хорошо, записал, теперь сколько раз в день будешь пить лекарство? Пришли ответ цифрой.")
-
-    await state.set_state(AddMedicine.wait_for_times_per_day)
-
-
-@add_new_medicine_router.message(AddMedicine.wait_for_times_per_day)
 async def cmd_ask_date(message: Message, state: FSMContext):
-    global previous_message
-    print(message.text)  # Todo: В будущем надо вместо print сделать сохранение в БД, т.к. сейчас график просто печатается
-
+    await data_db.add_medicine(medicine=message.text, tg_id=message.from_user.id)
     buttons = [
         [
-            types.InlineKeyboardButton(text="Пн", callback_data="monday"),
+            Button(Const("Пн"), id="monday", on_click=switch),
             types.InlineKeyboardButton(text="Вт", callback_data="tuesday"),
             types.InlineKeyboardButton(text="Ср", callback_data="wednesday"),
             types.InlineKeyboardButton(text="Чт", callback_data="thursday"),
+        ],
+        [
             types.InlineKeyboardButton(text="Пт", callback_data="friday"),
             types.InlineKeyboardButton(text="Сб", callback_data="saturday"),
             types.InlineKeyboardButton(text="Вс", callback_data="sunday"),
             types.InlineKeyboardButton(text="ОК", callback_data="finish")
         ]
     ]
-
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
+    await message.answer(
+        "Хорошо, записал, теперь в какие дни будешь пить лекарство? Можно отметить несколько. В конце нажми ОК",
+        reply_markup=keyboard)
+    await state.set_state(AddMedicine.wait_for_weekdays)
 
-    previous_message = await message.answer("Хорошо, записал, теперь пришли график приёма лекарства", reply_markup=keyboard)
-    previous_message = previous_message.message_id
-    await state.set_state(AddMedicine.wait_for_schedule)
+
+@add_new_medicine_router.callback_query(AddMedicine.wait_for_weekdays)
+async def cmd_ask_date(callback: types.CallbackQuery, state: FSMContext):
+    if callback.data != "finish":
+        await state.set_state(AddMedicine.wait_for_medicine_name)
+
+    # await data_db.add_week_days(week_days=message.text, tg_id=message.from_user.id)
+
+    # previous_message = await message.answer("Хорошо, записал, теперь пришли график приёма лекарства", reply_markup=keyboard)
+    # previous_message = previous_message.message_id
+    # await state.set_state(AddMedicine.wait_for_schedule)
 
 
 @add_new_medicine_router.callback_query(AddMedicine.wait_for_schedule)
@@ -84,9 +107,10 @@ async def cmd_ask_date(callback: types.CallbackQuery, state: FSMContext):
             buttons[0].append(types.InlineKeyboardButton(text=v, callback_data=k))
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
 
-        print(week)  # Todo: В будущем надо вместо print сделать сохранение в БД, т.к. сейчас расписание просто печатается
-        await callback.bot.edit_message_reply_markup(reply_markup=keyboard, chat_id=callback.message.chat.id, message_id=previous_message)
-
+        print(
+            week)  # Todo: В будущем надо вместо print сделать сохранение в БД, т.к. сейчас расписание просто печатается
+        await callback.bot.edit_message_reply_markup(reply_markup=keyboard, chat_id=callback.message.chat.id,
+                                                     message_id=previous_message)
 
 
 @add_new_medicine_router.message()

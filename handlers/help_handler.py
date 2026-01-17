@@ -12,6 +12,7 @@ description = """
 /show - Показать график приёма лекарств\n
 """
 
+
 @help_router.message(Command(commands=['help'], prefix='/?!'))
 async def cmd_help(message: Message):
     await message.answer(description)
